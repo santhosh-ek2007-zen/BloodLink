@@ -8,17 +8,17 @@ from pathlib import Path
 import streamlit as st
 
 _ROOT = Path(__file__).resolve().parent.parent
-for _p in [str(_ROOT / "app"), str(_ROOT / "services")]:
+for _p in [str(_ROOT), str(_ROOT / "app"), str(_ROOT / "services")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from allocation_service import (
+from services.allocation_service import (
     allocate_units,
     find_eligible_units,
     get_allocation_history,
     issue_units,
 )
-from request_service import get_request_detail
+from services.request_service import get_request_detail
 
 st.title("🩸 Blood Allocation")
 st.caption(

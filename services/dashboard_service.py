@@ -84,7 +84,7 @@ def get_inventory_by_group_and_component() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows
@@ -105,7 +105,7 @@ def get_inventory_by_bank() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows

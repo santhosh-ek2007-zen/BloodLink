@@ -2,11 +2,12 @@
 pages/donors.py — Donor registration and management page.
 
 Features:
-- Clear "Register as Donor" section with complete input validation.
-- Concurrency-safe duplicate phone check and transaction management.
-- Live PostgreSQL persistence and immediate confirmation.
-- Privacy-conscious donor directory (masked phone numbers by default).
-- Donor profile inspection, updates, and donation history.
+- Complete CRUD operations:
+  - Create: "Register as Donor" section with full validation.
+  - Read: "Donor Directory" with search, blood group, location, and active status filters.
+  - Update: Edit name, phone, blood group, and location.
+  - Deactivate / Reactivate: Logical state toggle preserving history.
+  - Delete: Safe physical deletion allowed ONLY when no donation records exist.
 """
 
 import sys
@@ -14,15 +15,18 @@ from pathlib import Path
 import streamlit as st
 
 _ROOT = Path(__file__).resolve().parent.parent
-for _p in [str(_ROOT / "app"), str(_ROOT / "services")]:
+for _p in [str(_ROOT), str(_ROOT / "app"), str(_ROOT / "services")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from donor_service import (
+from services.donor_service import (
     VALID_BLOOD_GROUPS,
+    deactivate_donor,
+    delete_donor,
     get_donation_history,
     get_donor_by_id,
     list_donors,
+    reactivate_donor,
     register_donor,
     update_donor,
 )
@@ -34,11 +38,11 @@ st.caption(
 )
 
 tab_register, tab_directory, tab_detail = st.tabs(
-    ["📝 Register as Donor", "📋 Donor Directory", "🔍 Donor Detail & History"]
+    ["📝 Register as Donor", "📋 Donor Directory", "🔍 Donor Detail & Actions"]
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Tab 1: Register as Donor
+# Tab 1: Register as Donor (CREATE)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_register:
     st.header("Register as Donor")
@@ -81,9 +85,9 @@ with tab_register:
             )
             phone_input = st.text_input(
                 "Phone Number *",
-                placeholder="e.g. 9876543210 or +91 9876543210",
-                max_chars=20,
-                help="10 to 15 digits. Used to prevent duplicate registrations.",
+                placeholder="e.g. 9876543210",
+                max_chars=10,
+                help="Exactly 10 digits. Used to prevent duplicate registrations.",
             )
 
         with col2:
@@ -104,7 +108,6 @@ with tab_register:
         submit_btn = st.form_submit_button("💾 Complete Registration", use_container_width=True)
 
     if submit_btn:
-        # Perform frontend checks
         errors = []
         if not name_input.strip():
             errors.append("Donor Name is required.")
@@ -118,7 +121,6 @@ with tab_register:
                 st.error(err)
         else:
             try:
-                # Backend registration with full validation, duplicate check, and transaction commit
                 new_donor_id = register_donor(
                     name=name_input,
                     phone=phone_input,
@@ -143,21 +145,22 @@ with tab_register:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Tab 2: Donor Directory
+# Tab 2: Donor Directory (READ)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_directory:
     st.header("Registered Donors Directory")
     st.write("Browse and filter registered donors directly from PostgreSQL.")
 
-    col_s1, col_s2, col_s3 = st.columns(3)
+    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
     with col_s1:
         search_name = st.text_input("Search by Name", key="dir_name", placeholder="Search name...")
     with col_s2:
         bg_filter = st.selectbox("Filter Blood Group", ["All"] + list(VALID_BLOOD_GROUPS), key="dir_bg")
     with col_s3:
         loc_filter = st.text_input("Filter Location", key="dir_loc", placeholder="Search city...")
+    with col_s4:
+        active_filter = st.selectbox("Filter Status", ["All Donors", "Active Only"], key="dir_act")
 
-    # Privacy toggle for phone display
     mask_toggle = st.checkbox(
         "Mask contact information (privacy protection)",
         value=True,
@@ -170,18 +173,24 @@ with tab_directory:
             blood_group="" if bg_filter == "All" else bg_filter,
             location=loc_filter,
             mask_contacts=mask_toggle,
+            active_only=(active_filter == "Active Only"),
         )
 
         if rows:
             import pandas as pd
             df = pd.DataFrame(rows, columns=cols)
-            df = df.rename(columns={
+            rename_dict = {
                 "donor_id": "Donor ID",
                 "donor_name": "Full Name",
                 "blood_group": "Blood Group",
                 "location": "Location",
                 "phone": "Contact Number",
-            })
+            }
+            if "is_active" in df.columns:
+                rename_dict["is_active"] = "Active"
+                df["is_active"] = df["is_active"].apply(lambda x: "✅ Active" if x else "❌ Inactive")
+
+            df = df.rename(columns=rename_dict)
             st.dataframe(df, use_container_width=True, hide_index=True)
             st.caption(f"Showing **{len(rows)}** registered donor(s) from PostgreSQL.")
         else:
@@ -193,22 +202,29 @@ with tab_directory:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Tab 3: Donor Detail & History
+# Tab 3: Donor Detail & Actions (UPDATE & DELETE / DEACTIVATE)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_detail:
-    st.header("Donor Profile & History")
-    st.write("Inspect a specific donor profile, view donation records, or update contact info.")
+    st.header("Donor Profile & Management Actions")
+    st.write("Inspect a specific donor profile, update contact information, or manage donor status.")
 
     lookup_id = st.number_input("Enter Donor ID", min_value=1, step=1, value=1, key="lk_donor_id")
 
     if st.button("Load Donor Profile", key="btn_load_donor"):
-        try:
-            donor = get_donor_by_id(int(lookup_id))
-            if donor is None:
-                st.warning(f"No donor found with Donor ID **#{lookup_id}** in the database.")
-            else:
-                d_id, d_name, d_phone, d_bg, d_loc = donor
-                st.markdown(f"""
+        st.session_state["loaded_donor_id"] = int(lookup_id)
+
+    target_id = st.session_state.get("loaded_donor_id", int(lookup_id))
+
+    try:
+        donor = get_donor_by_id(target_id)
+        if donor is None:
+            st.warning(f"No donor found with Donor ID **#{target_id}** in the database.")
+        else:
+            d_id, d_name, d_phone, d_bg, d_loc, *extra = donor
+            is_active = extra[0] if extra else True
+            status_badge = "🟢 Active" if is_active else "🔴 Inactive (Deactivated)"
+
+            st.markdown(f"""
 | Field | Database Record |
 |---|---|
 | **Donor ID** | #{d_id} |
@@ -216,57 +232,108 @@ with tab_detail:
 | **Blood Group** | **{d_bg}** |
 | **Phone Number** | {d_phone} |
 | **Location** | {d_loc or '—'} |
+| **Account Status** | **{status_badge}** |
 """)
 
-                # Form to update donor
-                with st.expander("✏️ Update Donor Details"):
-                    with st.form(f"form_update_donor_{d_id}"):
-                        u_name = st.text_input("Name", value=d_name, max_chars=50)
-                        u_phone = st.text_input("Phone", value=d_phone, max_chars=20)
-                        u_bg = st.selectbox(
-                            "Blood Group",
-                            VALID_BLOOD_GROUPS,
-                            index=list(VALID_BLOOD_GROUPS).index(d_bg),
-                        )
-                        u_loc = st.text_input("Location", value=d_loc or "", max_chars=100)
-                        save_btn = st.form_submit_button("Update Record")
+            # ── Action 1: UPDATE Donor Details ──
+            with st.expander("✏️ Edit Donor Details"):
+                with st.form(f"form_update_donor_{d_id}"):
+                    u_name = st.text_input("Full Name", value=d_name, max_chars=50)
+                    u_phone = st.text_input("Phone Number (10 digits)", value=d_phone, max_chars=10)
+                    u_bg = st.selectbox(
+                        "Blood Group",
+                        VALID_BLOOD_GROUPS,
+                        index=list(VALID_BLOOD_GROUPS).index(d_bg),
+                    )
+                    u_loc = st.text_input("Location", value=d_loc or "", max_chars=100)
+                    save_btn = st.form_submit_button("💾 Save Changes")
 
-                    if save_btn:
-                        try:
-                            ok = update_donor(d_id, u_name, u_phone, u_bg, u_loc)
-                            if ok:
-                                st.success("Donor record updated successfully in PostgreSQL.")
+                if save_btn:
+                    try:
+                        ok = update_donor(d_id, u_name, u_phone, u_bg, u_loc)
+                        if ok:
+                            st.success("Donor record updated successfully in PostgreSQL.")
+                            st.rerun()
+                        else:
+                            st.warning("No changes were applied.")
+                    except ValueError as ve:
+                        st.error(str(ve))
+                    except Exception as exc:
+                        st.error("Failed to update donor record.")
+                        st.exception(exc)
+
+            # ── Action 2: Deactivate / Reactivate (Logical Delete) ──
+            with st.expander("🔒 Deactivation & Reactivation (Logical Delete)"):
+                st.caption(
+                    "Deactivating a donor prevents them from participating in new donations while "
+                    "preserving all historical donation and medical testing records."
+                )
+                col_act1, col_act2 = st.columns(2)
+                with col_act1:
+                    if is_active:
+                        if st.button(f"🚫 Deactivate Donor #{d_id}", key=f"btn_deact_{d_id}"):
+                            try:
+                                deactivate_donor(d_id)
+                                st.success(f"Donor #{d_id} has been deactivated.")
                                 st.rerun()
-                            else:
-                                st.warning("No changes were applied.")
+                            except Exception as exc:
+                                st.error("Failed to deactivate donor.")
+                                st.exception(exc)
+                    else:
+                        if st.button(f"✅ Reactivate Donor #{d_id}", key=f"btn_react_{d_id}"):
+                            try:
+                                reactivate_donor(d_id)
+                                st.success(f"Donor #{d_id} has been reactivated.")
+                                st.rerun()
+                            except Exception as exc:
+                                st.error("Failed to reactivate donor.")
+                                st.exception(exc)
+
+            # ── Action 3: DELETE Donor (Physical Delete) ──
+            with st.expander("🗑️ Delete Donor Record (Physical Delete)"):
+                st.warning(
+                    "⚠️ Physical deletion permanently removes the donor record from PostgreSQL. "
+                    "By database integrity rules, deletion is **strictly prohibited** if any donation records exist."
+                )
+                confirm_delete = st.checkbox(f"I understand and want to permanently delete Donor #{d_id}", key=f"chk_del_{d_id}")
+                if st.button(f"Delete Donor #{d_id}", key=f"btn_del_{d_id}", type="primary"):
+                    if not confirm_delete:
+                        st.error("Please confirm the deletion checkbox above before proceeding.")
+                    else:
+                        try:
+                            delete_donor(d_id)
+                            st.success(f"Donor #{d_id} successfully deleted from the database.")
+                            del st.session_state["loaded_donor_id"]
+                            st.rerun()
                         except ValueError as ve:
                             st.error(str(ve))
                         except Exception as exc:
-                            st.error("Failed to update donor record.")
+                            st.error("Deletion failed due to a database error.")
                             st.exception(exc)
 
-                # History table
-                st.subheader("Donation History")
-                h_cols, h_rows = get_donation_history(int(lookup_id))
-                if h_rows:
-                    import pandas as pd
-                    hdf = pd.DataFrame(h_rows, columns=h_cols)
-                    hdf = hdf.rename(columns={
-                        "donation_id": "Donation ID",
-                        "bank_name": "Blood Bank",
-                        "donation_date": "Donation Date",
-                        "quantity_ml": "Volume (ml)",
-                        "unit_id": "Unit ID",
-                        "component": "Component",
-                        "blood_group": "Unit Group",
-                        "status": "Unit Status",
-                        "expiry_date": "Expiry Date",
-                    })
-                    hdf["Component"] = hdf["Component"].str.replace("_", " ").str.title()
-                    st.dataframe(hdf, use_container_width=True, hide_index=True)
-                else:
-                    st.info(f"No donation history recorded yet for Donor #{lookup_id}.")
+            # ── Donation History ──
+            st.divider()
+            st.subheader("Donation History")
+            h_cols, h_rows = get_donation_history(int(d_id))
+            if h_rows:
+                import pandas as pd
+                hdf = pd.DataFrame(h_rows, columns=h_cols)
+                hdf = hdf.rename(columns={
+                    "donation_id": "Donation ID",
+                    "bank_name": "Blood Bank",
+                    "donation_date": "Donation Date",
+                    "quantity_ml": "Volume (ml)",
+                    "unit_id": "Unit ID",
+                    "component": "Component",
+                    "blood_group": "Unit Group",
+                    "status": "Unit Status",
+                    "expiry_date": "Expiry Date",
+                })
+                hdf["Component"] = hdf["Component"].str.replace("_", " ").str.title()
+                st.dataframe(hdf, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"No donation history recorded yet for Donor #{d_id}.")
 
-        except Exception as exc:
-            st.error("Failed to load donor profile.")
-            st.exception(exc)
+    except Exception as exc:
+        st.error("Failed to load donor profile.")
+        st.exception(exc)

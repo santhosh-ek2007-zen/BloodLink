@@ -2,7 +2,7 @@
 services/donor_service.py — CRUD operations and validations for the donor table.
 
 Provides input validation, duplicate prevention, transaction safety,
-and data privacy protection (contact masking).
+data privacy protection (contact masking), deactivation, and restricted deletion.
 """
 
 import re
@@ -32,21 +32,21 @@ def validate_name(name: str) -> str:
 
 def validate_phone(phone: str) -> str:
     """Validate and clean phone number.
-    Accepts 10-15 digits with optional +, spaces, or hyphens.
+    Ensures the phone number contains exactly 10 digits.
     """
     cleaned = phone.strip() if phone else ""
     if not cleaned:
         raise ValueError("Phone number is required.")
     digits = re.sub(r"\D", "", cleaned)
-    if len(digits) < 10 or len(digits) > 15:
+    if len(digits) != 10:
         raise ValueError(
-            f"Invalid phone number '{cleaned}'. Phone must contain between 10 and 15 digits."
+            f"Invalid phone number '{cleaned}'. Phone number must be exactly 10 digits (found {len(digits)})."
         )
-    if not re.match(r"^\+?[0-9\s\-\(\)]{10,20}$", cleaned):
+    if not re.match(r"^[0-9\s\-]+$", cleaned):
         raise ValueError(
-            f"Invalid phone number format '{cleaned}'. Only digits, spaces, hyphens, and leading '+' are allowed."
+            f"Invalid phone number format '{cleaned}'. Only digits, spaces, and hyphens are allowed."
         )
-    return cleaned
+    return digits
 
 
 def validate_blood_group(blood_group: str) -> str:
@@ -94,13 +94,6 @@ def register_donor(
 
     Validates all inputs, prevents duplicate phone registration,
     and returns the database-generated donor_id.
-
-    Raises
-    ------
-    ValueError
-        On validation failure or duplicate registration.
-    psycopg.Error
-        On PostgreSQL operation errors.
     """
     clean_name = validate_name(name)
     clean_phone = validate_phone(phone)
@@ -113,7 +106,7 @@ def register_donor(
     with get_connection() as conn:
         try:
             with conn.cursor() as cur:
-                # 1. Concurrency-safe check for existing duplicate phone
+                # 1. Check for existing duplicate phone
                 cur.execute(
                     "SELECT donor_id, donor_name FROM donor WHERE phone = %s;",
                     (clean_phone,),
@@ -149,25 +142,9 @@ def list_donors(
     blood_group: str = "",
     location: str = "",
     mask_contacts: bool = True,
+    active_only: bool = False,
 ) -> tuple[list, list]:
-    """Return registered donors from PostgreSQL with optional filtering and privacy masking.
-
-    Parameters
-    ----------
-    search_name : str
-        Filter by donor name substring (case-insensitive).
-    blood_group : str
-        Filter by blood group.
-    location : str
-        Filter by location substring (case-insensitive).
-    mask_contacts : bool
-        If True, masks phone numbers (e.g. ******0001) for privacy.
-
-    Returns
-    -------
-    columns : list[str]
-    rows    : list[tuple]
-    """
+    """Return registered donors from PostgreSQL with optional filtering and privacy masking."""
     conditions = []
     params: list = []
 
@@ -191,7 +168,8 @@ def list_donors(
             donor_name,
             blood_group,
             location,
-            phone
+            phone,
+            COALESCE(is_active, TRUE) AS is_active
         FROM donor
         {where}
         ORDER BY donor_id DESC;
@@ -199,15 +177,58 @@ def list_donors(
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, params)
-            columns = [d.name for d in cur.description]
+            # First check if is_active column exists
+            cur.execute(
+                """
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'donor' AND column_name = 'is_active';
+                """
+            )
+            has_is_active = cur.fetchone() is not None
+
+            if not has_is_active:
+                # Fallback query if column hasn't been migrated yet
+                fallback_query = f"""
+                    SELECT
+                        donor_id,
+                        donor_name,
+                        blood_group,
+                        location,
+                        phone,
+                        TRUE AS is_active
+                    FROM donor
+                    {where}
+                    ORDER BY donor_id DESC;
+                """
+                cur.execute(fallback_query, params)
+            else:
+                if active_only:
+                    active_cond = "is_active = TRUE"
+                    where_clause = f"{where} AND {active_cond}" if where else f"WHERE {active_cond}"
+                    active_query = f"""
+                        SELECT
+                            donor_id,
+                            donor_name,
+                            blood_group,
+                            location,
+                            phone,
+                            is_active
+                        FROM donor
+                        {where_clause}
+                        ORDER BY donor_id DESC;
+                    """
+                    cur.execute(active_query, params)
+                else:
+                    cur.execute(query, params)
+
+            columns = ([d.name for d in cur.description] if cur.description else [])
             raw_rows = cur.fetchall()
 
     if mask_contacts:
         processed_rows = []
         for r in raw_rows:
-            # (donor_id, donor_name, blood_group, location, phone)
-            masked_r = (r[0], r[1], r[2], r[3], mask_phone(r[4]))
+            # (donor_id, donor_name, blood_group, location, phone, is_active)
+            masked_r = (r[0], r[1], r[2], r[3], mask_phone(r[4]), r[5])
             processed_rows.append(masked_r)
         return columns, processed_rows
 
@@ -216,14 +237,34 @@ def list_donors(
 
 def get_donor_by_id(donor_id: int) -> tuple | None:
     """Return a single donor row by primary key or None."""
-    query = """
-        SELECT donor_id, donor_name, phone, blood_group, location
-        FROM donor
-        WHERE donor_id = %s;
-    """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (donor_id,))
+            cur.execute(
+                """
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'donor' AND column_name = 'is_active';
+                """
+            )
+            has_is_active = cur.fetchone() is not None
+
+            if has_is_active:
+                cur.execute(
+                    """
+                    SELECT donor_id, donor_name, phone, blood_group, location, is_active
+                    FROM donor
+                    WHERE donor_id = %s;
+                    """,
+                    (donor_id,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT donor_id, donor_name, phone, blood_group, location, TRUE AS is_active
+                    FROM donor
+                    WHERE donor_id = %s;
+                    """,
+                    (donor_id,),
+                )
             return cur.fetchone()
 
 
@@ -249,7 +290,7 @@ def get_donation_history(donor_id: int) -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, (donor_id,))
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows
@@ -294,6 +335,69 @@ def update_donor(
                 updated = cur.rowcount
             conn.commit()
             return updated > 0
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def deactivate_donor(donor_id: int) -> bool:
+    """Set donor status to inactive (logical deactivation)."""
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE donor SET is_active = FALSE WHERE donor_id = %s;", (donor_id,))
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def reactivate_donor(donor_id: int) -> bool:
+    """Set donor status to active (logical reactivation)."""
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE donor SET is_active = TRUE WHERE donor_id = %s;", (donor_id,))
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def delete_donor(donor_id: int) -> bool:
+    """Physically delete a donor ONLY if no donation records exist.
+    Preserves medical and transaction history.
+    """
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                # 1. Check if donor exists
+                cur.execute("SELECT donor_name FROM donor WHERE donor_id = %s;", (donor_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Donor #{donor_id} not found.")
+                donor_name = row[0]
+
+                # 2. Check for dependent donation records
+                cur.execute("SELECT COUNT(*) FROM donation WHERE donor_id = %s;", (donor_id,))
+                don_count = cur.fetchone()[0]
+                if don_count > 0:
+                    raise ValueError(
+                        f"Cannot delete donor #{donor_id} ('{donor_name}') because {don_count} donation "
+                        "record(s) exist. Medical donation history must be preserved. "
+                        "You may deactivate the donor instead to prevent future donations."
+                    )
+
+                # 3. Safe physical deletion
+                cur.execute("DELETE FROM donor WHERE donor_id = %s;", (donor_id,))
+                deleted = cur.rowcount > 0
+
+            conn.commit()
+            return deleted
         except Exception:
             conn.rollback()
             raise

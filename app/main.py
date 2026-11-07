@@ -34,19 +34,21 @@ st.set_page_config(
 )
 
 # ── Register pages ─────────────────────────────────────────────────────────
-dashboard_page  = st.Page(str(_PAGES_DIR / "dashboard.py"),        title="Dashboard",       icon="🏠", default=True)
-search_page     = st.Page(str(_PAGES_DIR / "emergency_search.py"), title="Find Blood Now",  icon="🚨")
-donors_page     = st.Page(str(_PAGES_DIR / "donors.py"),           title="Donors",          icon="👤")
-inventory_page  = st.Page(str(_PAGES_DIR / "inventory.py"),        title="Inventory",       icon="🏥")
-requests_page   = st.Page(str(_PAGES_DIR / "requests.py"),         title="Blood Requests",  icon="📋")
-allocation_page = st.Page(str(_PAGES_DIR / "allocation.py"),       title="Allocation",      icon="🩸")
-history_page    = st.Page(str(_PAGES_DIR / "history.py"),          title="Status History",  icon="📜")
-reports_page    = st.Page(str(_PAGES_DIR / "reports.py"),          title="Reports",         icon="📊")
+dashboard_page   = st.Page(str(_PAGES_DIR / "dashboard.py"),        title="Dashboard",       icon="🏠", default=True)
+search_page      = st.Page(str(_PAGES_DIR / "emergency_search.py"), title="Find Blood Now",  icon="🚨")
+donors_page      = st.Page(str(_PAGES_DIR / "donors.py"),           title="Donors",          icon="👤")
+inventory_page   = st.Page(str(_PAGES_DIR / "inventory.py"),        title="Inventory",       icon="📦")
+requests_page    = st.Page(str(_PAGES_DIR / "requests.py"),         title="Blood Requests",  icon="📋")
+allocation_page  = st.Page(str(_PAGES_DIR / "allocation.py"),       title="Allocation",      icon="🩸")
+hospitals_page   = st.Page(str(_PAGES_DIR / "hospitals.py"),        title="Hospitals",       icon="🏥")
+blood_banks_page = st.Page(str(_PAGES_DIR / "blood_banks.py"),      title="Blood Banks",     icon="🏢")
+history_page     = st.Page(str(_PAGES_DIR / "history.py"),          title="Status History",  icon="📜")
+reports_page     = st.Page(str(_PAGES_DIR / "reports.py"),          title="Reports",         icon="📊")
 
 pg = st.navigation(
     {
         "Overview":   [dashboard_page, search_page],
-        "Management": [donors_page, inventory_page, requests_page, allocation_page],
+        "Management": [donors_page, inventory_page, requests_page, allocation_page, hospitals_page, blood_banks_page],
         "Analytics":  [history_page, reports_page],
     }
 )

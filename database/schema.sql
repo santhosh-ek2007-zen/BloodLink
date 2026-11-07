@@ -5,7 +5,8 @@ CREATE TABLE donor (
     phone VARCHAR(20) NOT NULL,
     blood_group VARCHAR(3) NOT NULL
         CHECK (blood_group IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')),
-    location VARCHAR(100)
+    location VARCHAR(100),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE blood_bank (

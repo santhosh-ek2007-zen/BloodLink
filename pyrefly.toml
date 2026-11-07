@@ -1,0 +1,11 @@
+search-path = [
+    ".",
+    "services",
+    "app"
+]
+
+[errors]
+ignore-missing-imports = [
+    "pytest"
+]
+

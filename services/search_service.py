@@ -122,7 +122,7 @@ def search_available_blood(
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(base_query, params)
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return {

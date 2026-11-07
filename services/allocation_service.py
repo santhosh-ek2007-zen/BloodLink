@@ -48,7 +48,7 @@ def find_eligible_units(request_id: int) -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, (request_id,))
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows
@@ -165,14 +165,8 @@ def allocate_units(
 
                 # ── 4. Update request status ──────────────────────────────
                 total_reserved_issued = already_issued + allocated_count
-                if total_reserved_issued >= qty_requested:
+                if total_reserved_issued >= qty_requested or allocated_count > 0:
                     new_req_status = "partially_fulfilled"  # will be fulfilled on issue
-                    # If quantity matches requested, mark as partially_fulfilled
-                    # (full fulfilment happens when units are 'issued')
-                    if total_reserved_issued >= qty_requested:
-                        new_req_status = "partially_fulfilled"
-                elif allocated_count > 0:
-                    new_req_status = "partially_fulfilled"
                 else:
                     new_req_status = req_status  # unchanged
 
@@ -320,7 +314,7 @@ def get_allocation_history(request_id: int) -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, (request_id,))
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows

@@ -1,7 +1,7 @@
 """
-services/request_service.py — Blood request creation and retrieval.
+services/request_service.py — Blood request creation, retrieval, updates, and cancellation.
 """
-
+import psycopg
 from db import get_connection
 
 VALID_COMPONENTS  = ("whole_blood", "red_cells", "plasma", "platelets")
@@ -76,7 +76,7 @@ def list_requests(
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, params)
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows
@@ -146,24 +146,177 @@ def create_request(
     return request_id
 
 
+def update_request(
+    request_id: int,
+    quantity_requested: int,
+    urgency: str,
+) -> bool:
+    """Update quantity and urgency for an unallocated pending request.
+
+    Restricts modifications once units have been allocated or if request is closed.
+    """
+    if quantity_requested <= 0:
+        raise ValueError("Quantity requested must be at least 1.")
+    if urgency not in VALID_URGENCIES:
+        raise ValueError(f"Invalid urgency: {urgency!r}")
+
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                # 1. Check request status
+                cur.execute(
+                    "SELECT status FROM blood_request WHERE request_id = %s FOR UPDATE;",
+                    (request_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Blood request #{request_id} not found.")
+
+                status = row[0]
+                if status != "pending":
+                    raise ValueError(
+                        f"Cannot modify blood request #{request_id} because its status is '{status}'. "
+                        "Modifications are only permitted on 'pending' requests."
+                    )
+
+                # 2. Check for active allocations
+                cur.execute(
+                    "SELECT COUNT(*) FROM allocation WHERE request_id = %s AND status IN ('reserved', 'issued');",
+                    (request_id,),
+                )
+                alloc_count = cur.fetchone()[0]
+                if alloc_count > 0:
+                    raise ValueError(
+                        f"Cannot modify blood request #{request_id} because {alloc_count} unit(s) are already allocated to it. "
+                        "Cancel the request or allocate additional units instead."
+                    )
+
+                # 3. Perform update
+                cur.execute(
+                    """
+                    UPDATE blood_request
+                    SET quantity_requested = %s,
+                        urgency            = %s
+                    WHERE request_id = %s;
+                    """,
+                    (quantity_requested, urgency, request_id),
+                )
+                updated = cur.rowcount > 0
+
+            conn.commit()
+            return updated
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def cancel_request(request_id: int) -> bool:
     """Cancel a pending or partially-fulfilled request.
 
-    Returns True if the request was updated, False if not found or
-    already in a terminal state.
-    """
-    query = """
-        UPDATE blood_request
-        SET status = 'cancelled'
-        WHERE request_id = %s
-          AND status IN ('pending', 'partially_fulfilled')
-        RETURNING request_id;
+    In a single transaction:
+    1. Finds all 'reserved' allocations for this request.
+    2. Cancels those allocations (status='cancelled', cancelled_at=CURRENT_TIMESTAMP).
+    3. Reverts the corresponding units in blood_unit back to status='available'.
+    4. Audits the unit status reversion in status_history.
+    5. Sets blood_request.status to 'cancelled'.
     """
     with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (request_id,))
-            updated = cur.fetchone()
-        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                # 1. Verify request is cancellable
+                cur.execute(
+                    """
+                    SELECT status FROM blood_request
+                    WHERE request_id = %s
+                    FOR UPDATE;
+                    """,
+                    (request_id,),
+                )
+                req = cur.fetchone()
+                if not req or req[0] not in ('pending', 'partially_fulfilled'):
+                    return False
 
-    return updated is not None
+                # 2. Find and cancel all reserved allocations
+                cur.execute(
+                    """
+                    UPDATE allocation
+                    SET status = 'cancelled',
+                        cancelled_at = CURRENT_TIMESTAMP
+                    WHERE request_id = %s AND status = 'reserved'
+                    RETURNING unit_id;
+                    """,
+                    (request_id,),
+                )
+                cancelled_units = [row[0] for row in cur.fetchall()]
 
+                # 3. Revert each reserved unit back to 'available' and record status_history
+                for unit_id in cancelled_units:
+                    cur.execute(
+                        """
+                        UPDATE blood_unit
+                        SET status = 'available'
+                        WHERE unit_id = %s;
+                        """,
+                        (unit_id,),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO status_history (unit_id, old_status, new_status, reason)
+                        VALUES (%s, 'reserved', 'available', %s);
+                        """,
+                        (unit_id, f"Released back to available: Request #{request_id} was cancelled."),
+                    )
+
+                # 4. Mark request as cancelled
+                cur.execute(
+                    """
+                    UPDATE blood_request
+                    SET status = 'cancelled'
+                    WHERE request_id = %s;
+                    """,
+                    (request_id,),
+                )
+
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def delete_request(request_id: int) -> bool:
+    """Delete a blood request only if no allocation records exist.
+
+    Preserves allocation and issue history for medical audit integrity.
+    """
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                # 1. Check if request exists
+                cur.execute("SELECT status FROM blood_request WHERE request_id = %s;", (request_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Blood request #{request_id} not found.")
+
+                # 2. Check for dependent allocation records
+                cur.execute(
+                    "SELECT COUNT(*) FROM allocation WHERE request_id = %s;",
+                    (request_id,),
+                )
+                alloc_count = cur.fetchone()[0]
+                if alloc_count > 0:
+                    raise ValueError(
+                        f"Cannot delete blood request #{request_id} because {alloc_count} allocation record(s) exist. "
+                        "Foreign-key referential integrity and audit requirements require this history to be preserved. "
+                        "You may cancel the request instead."
+                    )
+
+                # 3. Safe deletion
+                cur.execute("DELETE FROM blood_request WHERE request_id = %s;", (request_id,))
+                deleted = cur.rowcount > 0
+
+            conn.commit()
+            return deleted
+        except Exception:
+            conn.rollback()
+            raise

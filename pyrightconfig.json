@@ -1,0 +1,12 @@
+{
+  "include": [
+    "."
+  ],
+  "extraPaths": [
+    ".",
+    "services",
+    "app"
+  ],
+  "reportMissingImports": false
+}
+

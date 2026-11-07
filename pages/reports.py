@@ -8,11 +8,11 @@ import streamlit as st
 import pandas as pd
 
 _ROOT = Path(__file__).resolve().parent.parent
-for _p in [str(_ROOT / "app"), str(_ROOT / "services")]:
+for _p in [str(_ROOT), str(_ROOT / "app"), str(_ROOT / "services")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from reports_service import (
+from services.reports_service import (
     report_allocation_history,
     report_demand,
     report_expiry,

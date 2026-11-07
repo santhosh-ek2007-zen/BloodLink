@@ -15,13 +15,15 @@ search, and operational reporting.
 |---|---|
 | Database-driven dashboard | ✅ |
 | Emergency blood search (read-only, compatibility-aware) | ✅ |
-| Donor registration and history | ✅ |
-| Blood inventory management | ✅ |
-| Hospital blood request management | ✅ |
+| Complete Donor CRUD (Register, View, Update, Deactivate, Restricted Delete) | ✅ |
+| Complete Hospital CRUD (Register, View, Update, Restricted Delete) | ✅ |
+| Complete Blood Bank CRUD (Add, View, Update, Restricted Delete) | ✅ |
+| Complete Blood Inventory CRUD (Track, Donate, Update Expiry & Status, Restricted Delete) | ✅ |
+| Complete Blood Request CRUD (Create, View, Update, Cancel, Restricted Delete) | ✅ |
 | Concurrency-safe allocation with transactions | ✅ |
 | Unit issue workflow | ✅ |
 | Status history audit trail | ✅ |
-| SQL-based reports and analytics | ✅ |
+| SQL-based reports and syllabus analytics | ✅ |
 | Input validation and error handling | ✅ |
 
 ---
@@ -40,17 +42,21 @@ BloodLink/
 ├── pages/                   ← One file per Streamlit page
 │   ├── dashboard.py
 │   ├── emergency_search.py
-│   ├── donors.py
-│   ├── inventory.py
-│   ├── requests.py
-│   ├── allocation.py
-│   ├── history.py
-│   └── reports.py
+│   ├── donors.py            ← Donor CRUD & history
+│   ├── hospitals.py         ← Hospital CRUD
+│   ├── blood_banks.py       ← Blood bank CRUD
+│   ├── inventory.py         ← Blood inventory CRUD
+│   ├── requests.py          ← Blood request CRUD
+│   ├── allocation.py        ← Allocation and dispatch
+│   ├── history.py           ← Status audit log
+│   └── reports.py           ← SQL reports & syllabus showcase
 │
 ├── services/                ← Database operations, separated from UI
 │   ├── dashboard_service.py
 │   ├── search_service.py
 │   ├── donor_service.py
+│   ├── hospital_service.py  ← Hospital SQL operations
+│   ├── blood_bank_service.py← Blood bank SQL operations
 │   ├── inventory_service.py
 │   ├── request_service.py
 │   ├── allocation_service.py
@@ -58,15 +64,17 @@ BloodLink/
 │
 ├── database/                ← SQL scripts
 │   ├── schema.sql           ← Table definitions, PKs, FKs, CHECKs
-│   ├── constraints.sql      ← Additional constraints (unique partial index)
+│   ├── constraints.sql      ← Additional constraints (UNIQUE, CHECK)
 │   ├── seed.sql             ← Sample data for development
 │   ├── views.sql            ← Reusable views (available_blood_inventory, etc.)
 │   ├── reports.sql          ← Standalone SQL reporting queries
 │   └── blood_matching.sql   ← Candidate matching query (demonstration)
 │
 ├── tests/
-│   ├── test_search.py       ← Automated search and compatibility tests
-│   └── test_allocation.py   ← Automated allocation integrity tests
+│   ├── test_search.py            ← Automated search and compatibility tests
+│   ├── test_allocation.py        ← Automated allocation integrity tests
+│   ├── test_donor_registration.py← Automated donor registration tests
+│   └── test_crud_operations.py   ← Automated complete CRUD operations tests
 │
 ├── .env                     ← Local DB credentials (do NOT commit)
 ├── .env.example             ← Template without credentials

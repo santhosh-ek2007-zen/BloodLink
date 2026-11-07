@@ -13,7 +13,7 @@ VALID_STATUSES = (
 
 
 # ---------------------------------------------------------------------------
-# Blood banks
+# Blood banks lookup
 # ---------------------------------------------------------------------------
 
 def list_blood_banks() -> list[tuple]:
@@ -80,7 +80,7 @@ def list_inventory(
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, params)
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows
@@ -123,7 +123,7 @@ def get_unit_screening_history(unit_id: int) -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, (unit_id,))
-            columns = [d.name for d in cur.description]
+            columns = ([d.name for d in cur.description] if cur.description else [])
             rows = cur.fetchall()
 
     return columns, rows
@@ -159,55 +159,68 @@ def register_donation_and_units(
             raise ValueError(f"Invalid component: {u['component']!r}")
         if u["blood_group"] not in VALID_BLOOD_GROUPS:
             raise ValueError(f"Invalid blood group: {u['blood_group']!r}")
-        if u["expiry_date"] <= u["collection_date"]:
-            raise ValueError("Expiry date must be after collection date.")
+        if str(u["expiry_date"]) <= str(u["collection_date"]):
+            raise ValueError("Expiry date must be strictly after collection date.")
 
     with get_connection() as conn:
-        with conn.cursor() as cur:
-            # Insert donation
-            cur.execute(
-                """
-                INSERT INTO donation (donor_id, bank_id, donation_date, quantity_ml)
-                VALUES (%s, %s, %s, %s)
-                RETURNING donation_id;
-                """,
-                (donor_id, bank_id, donation_date, quantity_ml),
-            )
-            donation_id = cur.fetchone()[0]
+        try:
+            with conn.cursor() as cur:
+                # Check if donor is active (if is_active column exists)
+                cur.execute(
+                    "SELECT 1 FROM information_schema.columns WHERE table_name = 'donor' AND column_name = 'is_active';"
+                )
+                if cur.fetchone():
+                    cur.execute("SELECT is_active, donor_name FROM donor WHERE donor_id = %s;", (donor_id,))
+                    d_row = cur.fetchone()
+                    if d_row and not d_row[0]:
+                        raise ValueError(f"Donor #{donor_id} ('{d_row[1]}') is deactivated. Reactivate the donor before registering a donation.")
 
-            # Insert blood units
-            for u in units:
+                # Insert donation
                 cur.execute(
                     """
-                    INSERT INTO blood_unit
-                        (donation_id, component, blood_group,
-                         collection_date, expiry_date, status)
-                    VALUES (%s, %s, %s, %s, %s, 'under_testing')
-                    RETURNING unit_id;
+                    INSERT INTO donation (donor_id, bank_id, donation_date, quantity_ml)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING donation_id;
                     """,
-                    (
-                        donation_id,
-                        u["component"],
-                        u["blood_group"],
-                        u["collection_date"],
-                        u["expiry_date"],
-                    ),
+                    (donor_id, bank_id, donation_date, quantity_ml),
                 )
-                unit_id = cur.fetchone()[0]
+                donation_id = cur.fetchone()[0]
 
-                # Record initial status in history
-                cur.execute(
-                    """
-                    INSERT INTO status_history
-                        (unit_id, old_status, new_status, actor, remarks)
-                    VALUES (%s, NULL, 'under_testing', 'system', 'Unit created on donation registration');
-                    """,
-                    (unit_id,),
-                )
+                # Insert blood units
+                for u in units:
+                    cur.execute(
+                        """
+                        INSERT INTO blood_unit
+                            (donation_id, component, blood_group,
+                             collection_date, expiry_date, status)
+                        VALUES (%s, %s, %s, %s, %s, 'under_testing')
+                        RETURNING unit_id;
+                        """,
+                        (
+                            donation_id,
+                            u["component"],
+                            u["blood_group"],
+                            u["collection_date"],
+                            u["expiry_date"],
+                        ),
+                    )
+                    unit_id = cur.fetchone()[0]
 
-        conn.commit()
+                    # Record initial status in history
+                    cur.execute(
+                        """
+                        INSERT INTO status_history
+                            (unit_id, old_status, new_status, actor, remarks)
+                        VALUES (%s, NULL, 'under_testing', 'system', 'Unit created on donation registration');
+                        """,
+                        (unit_id,),
+                    )
 
-    return donation_id
+            conn.commit()
+            return donation_id
+        except Exception:
+            conn.rollback()
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -229,38 +242,278 @@ def update_unit_status(
         raise ValueError(f"Invalid status: {new_status!r}")
 
     with get_connection() as conn:
-        with conn.cursor() as cur:
-            # Fetch current status
-            cur.execute(
-                "SELECT status FROM blood_unit WHERE unit_id = %s FOR UPDATE;",
-                (unit_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                raise ValueError(f"No blood unit with unit_id={unit_id}.")
+        try:
+            with conn.cursor() as cur:
+                # Fetch current status
+                cur.execute(
+                    "SELECT status FROM blood_unit WHERE unit_id = %s FOR UPDATE;",
+                    (unit_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise ValueError(f"No blood unit with unit_id={unit_id}.")
 
-            old_status = row[0]
+                old_status = row[0]
 
-            if old_status == new_status:
-                return False  # No change needed
+                if old_status == new_status:
+                    return False  # No change needed
 
-            # Update unit
-            cur.execute(
-                "UPDATE blood_unit SET status = %s WHERE unit_id = %s;",
-                (new_status, unit_id),
-            )
+                # Update unit
+                cur.execute(
+                    "UPDATE blood_unit SET status = %s WHERE unit_id = %s;",
+                    (new_status, unit_id),
+                )
 
-            # Record history
-            cur.execute(
-                """
-                INSERT INTO status_history
-                    (unit_id, old_status, new_status, actor, remarks)
-                VALUES (%s, %s, %s, %s, %s);
-                """,
-                (unit_id, old_status, new_status, actor, remarks or None),
-            )
+                # Record history
+                cur.execute(
+                    """
+                    INSERT INTO status_history
+                        (unit_id, old_status, new_status, actor, remarks)
+                    VALUES (%s, %s, %s, %s, %s);
+                    """,
+                    (unit_id, old_status, new_status, actor, remarks or None),
+                )
 
-        conn.commit()
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
 
-    return True
 
+# ---------------------------------------------------------------------------
+# Unit Expiry Update & Restricted Delete
+# ---------------------------------------------------------------------------
+
+def update_unit_expiry(
+    unit_id: int,
+    new_expiry_date,
+    actor: str = "staff",
+    remarks: str = "",
+) -> bool:
+    """Update a blood unit's expiry date if safe.
+
+    Restricts modifications on units that are already reserved or issued.
+    Enforces check constraint chk_blood_unit_dates (expiry_date > collection_date).
+    Records the modification in status_history.
+    """
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT collection_date, expiry_date, status FROM blood_unit WHERE unit_id = %s FOR UPDATE;",
+                    (unit_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Blood unit #{unit_id} not found.")
+
+                coll_date, old_exp, current_status = row
+
+                # Restrict modifications on reserved or issued units
+                if current_status in ("reserved", "issued"):
+                    raise ValueError(
+                        f"Cannot modify blood unit #{unit_id} because its current status is '{current_status}'. "
+                        "Modifications to units that are already reserved or issued are prohibited to maintain allocation integrity."
+                    )
+
+                # Validate date constraint
+                if str(new_expiry_date) <= str(coll_date):
+                    raise ValueError(f"New expiry date ({new_expiry_date}) must be strictly after collection date ({coll_date}).")
+
+                # Perform update
+                cur.execute(
+                    "UPDATE blood_unit SET expiry_date = %s WHERE unit_id = %s;",
+                    (str(new_expiry_date), unit_id),
+                )
+
+                # Log modification in status_history
+                cur.execute(
+                    """
+                    INSERT INTO status_history (unit_id, old_status, new_status, actor, remarks)
+                    VALUES (%s, %s, %s, %s, %s);
+                    """,
+                    (
+                        unit_id,
+                        current_status,
+                        current_status,
+                        actor,
+                        remarks or f"Expiry date changed from {old_exp} to {new_expiry_date}",
+                    ),
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def record_screening(
+    unit_id: int,
+    result: str,
+    remarks: str = "",
+    actor: str = "lab_tech",
+) -> int:
+    """Record a screening test result for a blood unit.
+
+    If result == 'approved', updates blood_unit.status to 'available' if currently 'under_testing'.
+    If result == 'rejected', updates blood_unit.status to 'discarded'.
+    Also logs the audit entry in status_history.
+    """
+    valid_results = ("pending", "approved", "rejected")
+    if result not in valid_results:
+        raise ValueError(f"Invalid screening result '{result}'. Must be one of: {', '.join(valid_results)}")
+
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                # 1. Verify unit exists
+                cur.execute("SELECT status FROM blood_unit WHERE unit_id = %s FOR UPDATE;", (unit_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Blood unit #{unit_id} not found.")
+                old_status = row[0]
+
+                # 2. Insert screening record
+                cur.execute(
+                    """
+                    INSERT INTO screening (unit_id, result, remarks)
+                    VALUES (%s, %s, %s)
+                    RETURNING screening_id;
+                    """,
+                    (unit_id, result, remarks or None),
+                )
+                screening_id = cur.fetchone()[0]
+
+                # 3. Synchronize unit status
+                new_status = old_status
+                if result == "approved" and old_status == "under_testing":
+                    new_status = "available"
+                elif result == "rejected" and old_status in ("under_testing", "available"):
+                    new_status = "discarded"
+
+                if new_status != old_status:
+                    cur.execute(
+                        "UPDATE blood_unit SET status = %s WHERE unit_id = %s;",
+                        (new_status, unit_id),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO status_history (unit_id, old_status, new_status, actor, remarks)
+                        VALUES (%s, %s, %s, %s, %s);
+                        """,
+                        (unit_id, old_status, new_status, actor, f"Screening result: {result}. {remarks}".strip()),
+                    )
+
+            conn.commit()
+            return screening_id
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def record_screening(
+    unit_id: int,
+    result: str,
+    remarks: str = "",
+    actor: str = "lab_tech",
+) -> int:
+    """Record a screening test result for a blood unit.
+
+    If result == 'approved', updates blood_unit.status to 'available' if currently 'under_testing'.
+    If result == 'rejected', updates blood_unit.status to 'discarded'.
+    Also logs the audit entry in status_history.
+    """
+    valid_results = ("pending", "approved", "rejected")
+    if result not in valid_results:
+        raise ValueError(f"Invalid screening result '{result}'. Must be one of: {', '.join(valid_results)}")
+
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                # 1. Verify unit exists
+                cur.execute("SELECT status FROM blood_unit WHERE unit_id = %s FOR UPDATE;", (unit_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Blood unit #{unit_id} not found.")
+                old_status = row[0]
+
+                # 2. Insert screening record
+                cur.execute(
+                    """
+                    INSERT INTO screening (unit_id, result, remarks)
+                    VALUES (%s, %s, %s)
+                    RETURNING screening_id;
+                    """,
+                    (unit_id, result, remarks or None),
+                )
+                screening_id = cur.fetchone()[0]
+
+                # 3. Synchronize unit status
+                new_status = old_status
+                if result == "approved" and old_status == "under_testing":
+                    new_status = "available"
+                elif result == "rejected" and old_status in ("under_testing", "available"):
+                    new_status = "discarded"
+
+                if new_status != old_status:
+                    cur.execute(
+                        "UPDATE blood_unit SET status = %s WHERE unit_id = %s;",
+                        (new_status, unit_id),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO status_history (unit_id, old_status, new_status, actor, remarks)
+                        VALUES (%s, %s, %s, %s, %s);
+                        """,
+                        (unit_id, old_status, new_status, actor, f"Screening result: {result}. {remarks}".strip()),
+                    )
+
+            conn.commit()
+            return screening_id
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def delete_blood_unit(unit_id: int) -> bool:
+    """Delete a blood unit only if no screening or allocation records exist.
+
+    If allocation or screening records exist, physical deletion is prohibited
+    to preserve historical data. The user should update the unit status to
+    'discarded' or 'expired' instead.
+    """
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                # 1. Check if unit exists
+                cur.execute("SELECT status FROM blood_unit WHERE unit_id = %s;", (unit_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Blood unit #{unit_id} not found.")
+
+                # 2. Check for dependent allocation records
+                cur.execute("SELECT COUNT(*) FROM allocation WHERE unit_id = %s;", (unit_id,))
+                alloc_count = cur.fetchone()[0]
+
+                # 3. Check for dependent screening records
+                cur.execute("SELECT COUNT(*) FROM screening WHERE unit_id = %s;", (unit_id,))
+                screen_count = cur.fetchone()[0]
+
+                if alloc_count > 0 or screen_count > 0:
+                    raise ValueError(
+                        f"Cannot physically delete blood unit #{unit_id} because {screen_count} screening record(s) "
+                        f"and {alloc_count} allocation record(s) exist. Medical audit integrity requires this history "
+                        "to be preserved. You may update the unit status to 'discarded' or 'expired' instead."
+                    )
+
+                # 4. Clean up status history for this unit and delete
+                cur.execute("DELETE FROM status_history WHERE unit_id = %s;", (unit_id,))
+                cur.execute("DELETE FROM blood_unit WHERE unit_id = %s;", (unit_id,))
+                deleted = cur.rowcount > 0
+
+            conn.commit()
+            return deleted
+        except Exception:
+            conn.rollback()
+            raise

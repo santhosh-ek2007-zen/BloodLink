@@ -8,7 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 _ROOT = Path(__file__).resolve().parent.parent
-for _p in [str(_ROOT / "app"), str(_ROOT / "services")]:
+for _p in [str(_ROOT), str(_ROOT / "app"), str(_ROOT / "services")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

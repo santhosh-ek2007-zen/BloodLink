@@ -154,10 +154,33 @@ $$\pi_{\text{request\_id, hospital\_name, unit\_id}} \left( \text{BLOOD\_REQUEST
 
 ## Unit 4: SQL & Database Integrity
 
-### 4.1 SQL DDL (Data Definition Language)
-- **Table Creation**: `CREATE TABLE` with explicit data types (`VARCHAR`, `INT`, `DATE`, `TIMESTAMP`).
+### 4.1 SQL DDL & DML (Data Definition & Manipulation)
+- **Table Creation (DDL)**: `CREATE TABLE` with explicit data types (`VARCHAR`, `INT`, `DATE`, `TIMESTAMP`).
+- **Schema Alteration (DDL)**: `ALTER TABLE ... ADD CONSTRAINT`, `ALTER TABLE donor ADD COLUMN IF NOT EXISTS is_active BOOLEAN`.
+- **Complete CRUD Operations (DML)**:
+  - **CREATE (INSERT)**:
+    - Donors: `INSERT INTO donor (...) VALUES (...) RETURNING donor_id;`
+    - Hospitals: `INSERT INTO hospital (...) VALUES (...) RETURNING hospital_id;`
+    - Blood Banks: `INSERT INTO blood_bank (...) VALUES (...) RETURNING bank_id;`
+    - Donations & Units: Atomic multi-table insertion in `register_donation_and_units()`.
+    - Requests: `INSERT INTO blood_request (...) VALUES (...) RETURNING request_id;`
+  - **READ (SELECT)**:
+    - Multi-table filtering, sorting, and aggregate lookups.
+  - **UPDATE**:
+    - Donors: `UPDATE donor SET donor_name = %s, phone = %s, blood_group = %s, location = %s WHERE donor_id = %s;`
+    - Donor Deactivation/Reactivation: `UPDATE donor SET is_active = FALSE/TRUE WHERE donor_id = %s;`
+    - Hospitals: `UPDATE hospital SET hospital_name = %s, address = %s, phone = %s WHERE hospital_id = %s;`
+    - Blood Banks: `UPDATE blood_bank SET bank_name = %s, address = %s, phone = %s WHERE bank_id = %s;`
+    - Inventory Expiry: `UPDATE blood_unit SET expiry_date = %s WHERE unit_id = %s;` (restricted on reserved/issued units).
+    - Inventory Status: `UPDATE blood_unit SET status = %s WHERE unit_id = %s;` (with `status_history` logging).
+    - Blood Requests: `UPDATE blood_request SET quantity_requested = %s, urgency = %s WHERE request_id = %s;` (restricted to pending unallocated requests).
+  - **DELETE**:
+    - Donors: `DELETE FROM donor WHERE donor_id = %s;` (permitted only if 0 donations exist).
+    - Hospitals: `DELETE FROM hospital WHERE hospital_id = %s;` (permitted only if 0 requests exist).
+    - Blood Banks: `DELETE FROM blood_bank WHERE bank_id = %s;` (permitted only if 0 donations exist).
+    - Blood Units: `DELETE FROM blood_unit WHERE unit_id = %s;` (permitted only if 0 screening and 0 allocation records exist).
+    - Blood Requests: `DELETE FROM blood_request WHERE request_id = %s;` (permitted only if 0 allocation records exist).
 - **Sequence Generation**: `GENERATED ALWAYS AS IDENTITY` ensures PostgreSQL controls sequential surrogate primary keys.
-- **Constraint Definition**: `ALTER TABLE ... ADD CONSTRAINT` in `database/constraints.sql`.
 
 ### 4.2 Database Constraints
 1. **NOT NULL Constraint**: Enforced on mandatory columns (`donor_name`, `phone`, `blood_group`).
@@ -173,6 +196,10 @@ $$\pi_{\text{request\_id, hospital\_name, unit\_id}} \left( \text{BLOOD\_REQUEST
    - Temporal Consistency Check:
      ```sql
      CHECK (expiry_date > collection_date)
+     ```
+   - Phone Number Exact Length Check (10 Digits):
+     ```sql
+     CHECK (LENGTH(phone) = 10)
      ```
 3. **UNIQUE Constraint**:
    ```sql

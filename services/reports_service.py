@@ -28,7 +28,7 @@ def report_inventory_by_bank() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_inventory_by_status() -> tuple[list, list]:
@@ -44,7 +44,7 @@ def report_inventory_by_status() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_expiry() -> tuple[list, list]:
@@ -66,7 +66,7 @@ def report_expiry() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_demand() -> tuple[list, list]:
@@ -85,7 +85,7 @@ def report_demand() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_request_fulfillment() -> tuple[list, list]:
@@ -116,7 +116,7 @@ def report_request_fulfillment() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_allocation_history() -> tuple[list, list]:
@@ -144,7 +144,7 @@ def report_allocation_history() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_set_union_facilities() -> tuple[list, list]:
@@ -170,7 +170,7 @@ def report_set_union_facilities() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_set_except_inactive_donors() -> tuple[list, list]:
@@ -195,7 +195,7 @@ def report_set_except_inactive_donors() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()
 
 
 def report_nested_having_above_average_banks() -> tuple[list, list]:
@@ -229,4 +229,4 @@ def report_nested_having_above_average_banks() -> tuple[list, list]:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            return [d.name for d in cur.description], cur.fetchall()
+            return ([d.name for d in cur.description] if cur.description else []), cur.fetchall()

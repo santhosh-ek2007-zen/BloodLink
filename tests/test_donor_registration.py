@@ -11,12 +11,12 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-for _p in [str(_ROOT / "app"), str(_ROOT / "services")]:
+for _p in [str(_ROOT), str(_ROOT / "app"), str(_ROOT / "services")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import psycopg
-from donor_service import (
+from services.donor_service import (
     VALID_BLOOD_GROUPS,
     mask_phone,
     register_donor,
@@ -68,12 +68,14 @@ def test_validate_name_invalid():
 
 def test_validate_phone_valid():
     assert validate_phone("9876543210") == "9876543210"
-    assert validate_phone("+91 9876543210") == "+91 9876543210"
-    assert validate_phone("044-22334455") == "044-22334455"
+    assert validate_phone("9000000001") == "9000000001"
+    assert validate_phone("98765 43210") == "9876543210"
+    assert validate_phone("98765-43210") == "9876543210"
 
 
 def test_validate_phone_invalid():
-    for bad in ["", "   ", "12345", "1234567890123456", "98765abcde", "+91-abc"]:
+    # Must reject empty, non-10 digits, letters, or numbers with length != 10
+    for bad in ["", "   ", "12345", "123456789", "12345678901", "1234567890123456", "+91 9876543210", "98765abcde", "+91-abc"]:
         try:
             validate_phone(bad)
             assert False, f"Expected ValueError for invalid phone: {bad!r}"
@@ -97,7 +99,7 @@ def test_validate_blood_group_invalid():
 
 def test_mask_phone():
     assert mask_phone("9000000001") == "******0001"
-    assert mask_phone("+91 9000000002") == "**********0002"
+    assert mask_phone("9876543210") == "******3210"
     assert mask_phone("") == "—"
 
 

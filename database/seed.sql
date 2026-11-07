@@ -25,6 +25,7 @@ VALUES
 
 INSERT INTO blood_compatibility (component, recipient_group, donor_group)
 VALUES
+    -- Red blood cells compatibility
     ('red_cells', 'A+', 'A+'),
     ('red_cells', 'A+', 'A-'),
     ('red_cells', 'A+', 'O+'),
@@ -51,7 +52,39 @@ VALUES
     ('red_cells', 'AB-', 'O-'),
     ('red_cells', 'O+', 'O+'),
     ('red_cells', 'O+', 'O-'),
-    ('red_cells', 'O-', 'O-');
+    ('red_cells', 'O-', 'O-'),
+
+    -- Whole blood compatibility (exact group match)
+    ('whole_blood', 'A+', 'A+'),
+    ('whole_blood', 'A-', 'A-'),
+    ('whole_blood', 'B+', 'B+'),
+    ('whole_blood', 'B-', 'B-'),
+    ('whole_blood', 'AB+', 'AB+'),
+    ('whole_blood', 'AB-', 'AB-'),
+    ('whole_blood', 'O+', 'O+'),
+    ('whole_blood', 'O-', 'O-'),
+
+    -- Plasma compatibility (AB is universal plasma donor, O is universal plasma recipient)
+    ('plasma', 'O+', 'O+'), ('plasma', 'O+', 'O-'), ('plasma', 'O+', 'A+'), ('plasma', 'O+', 'A-'),
+    ('plasma', 'O+', 'B+'), ('plasma', 'O+', 'B-'), ('plasma', 'O+', 'AB+'), ('plasma', 'O+', 'AB-'),
+    ('plasma', 'O-', 'O+'), ('plasma', 'O-', 'O-'), ('plasma', 'O-', 'A+'), ('plasma', 'O-', 'A-'),
+    ('plasma', 'O-', 'B+'), ('plasma', 'O-', 'B-'), ('plasma', 'O-', 'AB+'), ('plasma', 'O-', 'AB-'),
+    ('plasma', 'A+', 'A+'), ('plasma', 'A+', 'A-'), ('plasma', 'A+', 'AB+'), ('plasma', 'A+', 'AB-'),
+    ('plasma', 'A-', 'A+'), ('plasma', 'A-', 'A-'), ('plasma', 'A-', 'AB+'), ('plasma', 'A-', 'AB-'),
+    ('plasma', 'B+', 'B+'), ('plasma', 'B+', 'B-'), ('plasma', 'B+', 'AB+'), ('plasma', 'B+', 'AB-'),
+    ('plasma', 'B-', 'B+'), ('plasma', 'B-', 'B-'), ('plasma', 'B-', 'AB+'), ('plasma', 'B-', 'AB-'),
+    ('plasma', 'AB+', 'AB+'), ('plasma', 'AB+', 'AB-'),
+    ('plasma', 'AB-', 'AB+'), ('plasma', 'AB-', 'AB-'),
+
+    -- Platelets compatibility (identical or plasma-compatible matching)
+    ('platelets', 'A+', 'A+'), ('platelets', 'A+', 'A-'), ('platelets', 'A+', 'AB+'), ('platelets', 'A+', 'AB-'),
+    ('platelets', 'A-', 'A-'), ('platelets', 'A-', 'AB-'),
+    ('platelets', 'B+', 'B+'), ('platelets', 'B+', 'B-'), ('platelets', 'B+', 'AB+'), ('platelets', 'B+', 'AB-'),
+    ('platelets', 'B-', 'B-'), ('platelets', 'B-', 'AB-'),
+    ('platelets', 'AB+', 'AB+'), ('platelets', 'AB+', 'AB-'),
+    ('platelets', 'AB-', 'AB-'),
+    ('platelets', 'O+', 'O+'), ('platelets', 'O+', 'O-'), ('platelets', 'O+', 'A+'), ('platelets', 'O+', 'B+'), ('platelets', 'O+', 'AB+'),
+    ('platelets', 'O-', 'O-'), ('platelets', 'O-', 'A-'), ('platelets', 'O-', 'B-'), ('platelets', 'O-', 'AB-');
 
 INSERT INTO donation (donor_id, bank_id, donation_date, quantity_ml)
 VALUES
@@ -113,6 +146,15 @@ WHERE br.hospital_id = 1
   AND bu.expiry_date >= CURRENT_DATE
   AND s.result = 'approved'
 LIMIT 1;
+
+-- Synchronize unit status and request status with the initial reservation
+UPDATE blood_unit
+SET status = 'reserved'
+WHERE unit_id IN (SELECT unit_id FROM allocation WHERE status = 'reserved');
+
+UPDATE blood_request
+SET status = 'partially_fulfilled'
+WHERE request_id IN (SELECT request_id FROM allocation WHERE status = 'reserved');
 
 INSERT INTO status_history
     (unit_id, old_status, new_status, actor, remarks)

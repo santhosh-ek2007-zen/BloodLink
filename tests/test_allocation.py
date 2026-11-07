@@ -17,15 +17,22 @@ Run from the project root:
 import sys
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    class _PytestMock:
+        @staticmethod
+        def fixture(func):
+            return func
+    pytest = _PytestMock()
 
 _ROOT = Path(__file__).resolve().parent.parent
-for _p in [str(_ROOT / "app"), str(_ROOT / "services")]:
+for _p in [str(_ROOT), str(_ROOT / "app"), str(_ROOT / "services")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 from db import get_connection
-from allocation_service import allocate_units, find_eligible_units
+from services.allocation_service import allocate_units, find_eligible_units
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
@@ -151,4 +158,14 @@ def test_partial_fulfillment_still_needed(test_request_id):
     if result["error"] is None:
         expected_still_needed = max(0, 5 - result["allocated"])
         assert result["still_needed"] == expected_still_needed
+
+
+if __name__ == "__main__":
+    print("=== Running Allocation Unit Tests ===")
+    test_allocation_invalid_request()
+    print("PASS: test_allocation_invalid_request")
+    test_allocation_invalid_quantity()
+    print("PASS: test_allocation_invalid_quantity")
+    print("Database-dependent allocation tests require a live PostgreSQL connection.")
+
 
