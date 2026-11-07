@@ -101,13 +101,13 @@ with tab_manage:
         else:
             hid, hname, haddr, hphone = hosp
             st.markdown(f"""
-| Field | Current Database Value |
-|---|---|
-| **Hospital ID** | #{hid} |
-| **Hospital Name** | {hname} |
-| **Address** | {haddr} |
-| **Phone Number** | {hphone} |
-""")
+            | Field | Current Database Value |
+            |---|---|
+            | **Hospital ID** | #{hid} |
+            | **Hospital Name** | {hname} |
+            | **Address** | {haddr} |
+            | **Phone Number** | {hphone} |
+            """)
 
             # Update Form
             with st.expander("✏️ Update Hospital Information", expanded=True):
