@@ -11,6 +11,10 @@ def test_connection():
 
                 result = cursor.fetchone()
 
+                if result is None:
+                    print("No results retured from database.")
+                    return
+                
                 print("Database connection successful!")
                 print("Database name:", result[0])
                 print("PostgreSQL version:", result[1])

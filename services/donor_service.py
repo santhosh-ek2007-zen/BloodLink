@@ -384,7 +384,12 @@ def delete_donor(donor_id: int) -> bool:
 
                 # 2. Check for dependent donation records
                 cur.execute("SELECT COUNT(*) FROM donation WHERE donor_id = %s;", (donor_id,))
-                don_count = cur.fetchone()[0]
+                result = cur.fetchone()
+
+                if result is None:
+                    raise RuntimeError("Could not retrieve donation count.")
+
+                don_count = result[0]
                 if don_count > 0:
                     raise ValueError(
                         f"Cannot delete donor #{donor_id} ('{donor_name}') because {don_count} donation "

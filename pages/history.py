@@ -63,6 +63,10 @@ def load_status_history(unit_id: int | None = None, limit: int = 100) -> tuple[l
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, params)
+
+            if cur.description is None:
+                return [], []
+            
             columns = [d.name for d in cur.description]
             rows = cur.fetchall()
 

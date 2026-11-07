@@ -55,7 +55,12 @@ def create_blood_bank(name: str, address: str, phone: str) -> int:
         try:
             with conn.cursor() as cur:
                 cur.execute(query, (clean_name, clean_address, clean_phone))
-                bank_id = cur.fetchone()[0]
+                result = cur.fetchone()
+
+                if result is None:
+                    raise RuntimeError("Blood bank registration failed.")
+
+                bank_id = result[0]
             conn.commit()
             return bank_id
         except Exception:
@@ -139,7 +144,12 @@ def delete_blood_bank(bank_id: int) -> bool:
 
                 # 2. Check for dependent donation records
                 cur.execute("SELECT COUNT(*) FROM donation WHERE bank_id = %s;", (bank_id,))
-                don_count = cur.fetchone()[0]
+                result = cur.fetchone()
+
+                if result is None:
+                    raise RuntimeError("Could not retrieve donation count.")
+
+                don_count = result[0]
                 if don_count > 0:
                     raise ValueError(
                         f"Cannot delete blood bank '{bank_name}' (ID: #{bank_id}) because {don_count} "

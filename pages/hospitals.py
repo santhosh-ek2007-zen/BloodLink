@@ -112,9 +112,9 @@ with tab_manage:
             # Update Form
             with st.expander("✏️ Update Hospital Information", expanded=True):
                 with st.form(f"form_update_hosp_{hid}"):
-                    edit_name = st.text_input("Hospital Name", value=hname, max_chars=50)
-                    edit_addr = st.text_area("Address", value=haddr, max_chars=200)
-                    edit_phone = st.text_input("Phone Number (10 digits)", value=hphone, max_chars=10)
+                    edit_name = st.text_input("Hospital Name", value=hname, max_chars=50) or ""
+                    edit_addr = st.text_area("Address", value=haddr, max_chars=200) or ""
+                    edit_phone = st.text_input("Phone Number (10 digits)", value=hphone, max_chars=10) or ""
                     update_btn = st.form_submit_button("💾 Save Updates")
 
                 if update_btn:

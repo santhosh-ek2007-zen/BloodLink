@@ -238,8 +238,8 @@ with tab_detail:
             # ── Action 1: UPDATE Donor Details ──
             with st.expander("✏️ Edit Donor Details"):
                 with st.form(f"form_update_donor_{d_id}"):
-                    u_name = st.text_input("Full Name", value=d_name, max_chars=50)
-                    u_phone = st.text_input("Phone Number (10 digits)", value=d_phone, max_chars=10)
+                    u_name = st.text_input("Full Name", value=d_name, max_chars=50) or ""
+                    u_phone = st.text_input("Phone Number (10 digits)", value=d_phone, max_chars=10) or ""
                     u_bg = st.selectbox(
                         "Blood Group",
                         VALID_BLOOD_GROUPS,

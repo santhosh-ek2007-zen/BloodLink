@@ -112,9 +112,9 @@ with tab_manage:
             # Update Form
             with st.expander("✏️ Update Blood Bank Information", expanded=True):
                 with st.form(f"form_update_bank_{bid}"):
-                    edit_name = st.text_input("Blood Bank Name", value=bname, max_chars=50)
-                    edit_addr = st.text_area("Address", value=baddr, max_chars=200)
-                    edit_phone = st.text_input("Phone Number (10 digits)", value=bphone, max_chars=10)
+                    edit_name = st.text_input("Blood Bank Name", value=bname, max_chars=50) or ""
+                    edit_addr = st.text_area("Address", value=baddr, max_chars=200) or ""
+                    edit_phone = st.text_input("Phone Number (10 digits)", value=bphone, max_chars=10) or ""
                     update_btn = st.form_submit_button("💾 Save Updates")
 
                 if update_btn:

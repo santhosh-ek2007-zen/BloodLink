@@ -115,7 +115,12 @@ def allocate_units(
                     """,
                     (request_id,),
                 )
-                already_issued = cur.fetchone()[0]
+                result = cur.fetchone()
+
+                if result is None:
+                    already_issued = 0
+                else:
+                    already_issued = result[0]
 
                 # ── 3. Find and lock eligible units ──────────────────────
                 cur.execute(
@@ -275,7 +280,12 @@ def issue_units(request_id: int, actor: str = "staff") -> dict:
                     """,
                     (request_id,),
                 )
-                total_issued = cur.fetchone()[0]
+                result = cur.fetchone()
+
+                if result is None:
+                    total_issued = 0
+                else:
+                    total_issued = result[0]
 
                 new_status = "fulfilled" if total_issued >= qty_requested else "partially_fulfilled"
                 cur.execute(
