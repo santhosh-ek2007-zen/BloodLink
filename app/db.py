@@ -16,18 +16,14 @@ if str(_APP_DIR) not in sys.path:
 
 
 def get_connection() -> psycopg.Connection:
-
-    try:
-        db_config = st.secrets["database"]
-    except Exception:
-        db_config = {}
+    db_config = st.secrets["database"]
 
     return psycopg.connect(
-        host=db_config.get("host") or os.getenv("DB_HOST", "localhost"),
-        port=int(db_config.get("port") or os.getenv("DB_PORT", "5432")),
-        dbname=db_config.get("dbname") or os.getenv("DB_NAME", "bloodlink"),
-        user=db_config.get("user") or os.getenv("DB_USER", "postgres"),
-        password=db_config.get("password") or os.getenv("DB_PASSWORD"),
-        sslmode=db_config.get("sslmode") or os.getenv("DB_SSLMODE", "require"),
+        host=db_config["host"],
+        port=int(db_config.get("port", 5432)),
+        dbname=db_config["dbname"],
+        user=db_config["user"],
+        password=db_config["password"],
+        sslmode=db_config.get("sslmode", "require"),
         channel_binding=db_config.get("channel_binding", "require")
     )
