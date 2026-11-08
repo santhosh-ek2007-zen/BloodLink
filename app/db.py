@@ -28,5 +28,6 @@ def get_connection() -> psycopg.Connection:
         dbname=db_config.get("dbname") or os.getenv("DB_NAME", "bloodlink"),
         user=db_config.get("user") or os.getenv("DB_USER", "postgres"),
         password=db_config.get("password") or os.getenv("DB_PASSWORD"),
-        sslmode=db_config.get("sslmode") or os.getenv("DB_SSLMODE", "require")
+        sslmode=db_config.get("sslmode") or os.getenv("DB_SSLMODE", "require"),
+        channel_binding=db_config.get("channel_binding", "require")
     )
