@@ -17,8 +17,6 @@ if str(_APP_DIR) not in sys.path:
 
 def get_connection() -> psycopg.Connection:
     db_config = st.secrets["database"]
-    st.write("Database host:", db_config["host"])
-    st.write("Database name:", db_config["dbname"])
     return psycopg.connect(
         host=db_config["host"],
         port=int(db_config.get("port", 5432)),
