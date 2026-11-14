@@ -130,28 +130,35 @@ with tab_register:
                 "Blood Bank *",
                 options=list(bank_map.keys()),
             )
-            quantity_ml = st.number_input(
-                "Volume Collected (ml) *",
-                min_value=50, max_value=600, value=450, step=50,
+            num_units_produced = st.number_input(
+                "Number of Units Produced *",
+                min_value=1, max_value=10, value=1, step=1,
+                help=(
+                    "How many individual inventory units were produced from this donation. "
+                    "Staff must enter the actual count."
+                ),
             )
 
         st.markdown("**Blood Unit Details**")
-        unit_comp = st.selectbox(
-            "Component *",
-            VALID_COMPONENTS,
-            format_func=lambda x: x.replace("_", " ").title(),
-        )
-        unit_bg = st.selectbox("Blood Group *", VALID_BLOOD_GROUPS)
-        collection_date = st.date_input(
-            "Collection Date *",
-            value=date.today(),
-            max_value=date.today(),
-        )
-        expiry_date = st.date_input(
-            "Expiry Date *",
-            value=date.today() + timedelta(days=42),
-            min_value=date.today() + timedelta(days=1),
-        )
+        col3, col4 = st.columns(2)
+        with col3:
+            unit_comp = st.selectbox(
+                "Component *",
+                VALID_COMPONENTS,
+                format_func=lambda x: x.replace("_", " ").title(),
+            )
+            unit_bg = st.selectbox("Blood Group *", VALID_BLOOD_GROUPS)
+        with col4:
+            collection_date = st.date_input(
+                "Collection Date *",
+                value=date.today(),
+                max_value=date.today(),
+            )
+            expiry_date = st.date_input(
+                "Expiry Date *",
+                value=date.today() + timedelta(days=42),
+                min_value=date.today() + timedelta(days=1),
+            )
 
         reg_btn = st.form_submit_button("Register Donation", use_container_width=True)
 
@@ -164,7 +171,8 @@ with tab_register:
                     donor_id=donor_map[donor_sel],
                     bank_id=bank_map[bank_sel2],
                     donation_date=str(donation_date),
-                    quantity_ml=quantity_ml,
+                    quantity_ml=450,
+                    num_units=int(num_units_produced),
                     units=[{
                         "component": unit_comp,
                         "blood_group": unit_bg,
@@ -174,8 +182,9 @@ with tab_register:
                 )
                 st.success(
                     f"✅ Donation registered. Donation ID: **#{donation_id}**. "
-                    "The blood unit is now 'under_testing' and will appear in "
-                    "available inventory after screening approval."
+                    f"**{int(num_units_produced)}** blood unit(s) created and set to "
+                    "'under_testing'. They will appear in available inventory after "
+                    "screening approval."
                 )
             except ValueError as ve:
                 st.error(str(ve))

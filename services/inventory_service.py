@@ -167,23 +167,45 @@ def register_donation_and_units(
     donor_id: int,
     bank_id: int,
     donation_date: str,
-    quantity_ml: int,
-    units: list[dict],
+    quantity_ml: int = 450,
+    units: list[dict] | None = None,
+    num_units: int | None = None,
 ) -> int:
     """
     Register a donation and create blood unit records atomically.
 
-    Each unit dictionary must contain:
-        component, blood_group, collection_date, expiry_date
+    Parameters
+    ----------
+    donor_id      : ID of the active donor.
+    bank_id       : ID of the blood bank.
+    donation_date : Date string (YYYY-MM-DD).
+    quantity_ml   : Total volume collected in millilitres.
+    units         : List of unit dicts. Each dict must contain:
+                      component, blood_group, collection_date, expiry_date.
+                    If a single dict is provided and num_units > 1, the same
+                    component/blood_group/dates are replicated num_units times.
+    num_units     : Optional explicit count of units to produce.
+                    When provided and units contains exactly one template dict,
+                    that template is replicated num_units times.
+                    When units already has the correct number of entries,
+                    num_units is ignored.
 
     Returns the new donation_id.
     """
 
     if quantity_ml <= 0:
-        raise ValueError("Quantity must be a positive number of ml.")
+        raise ValueError("Volume collected (ml) must be a positive number.")
 
     if not units:
         raise ValueError("At least one blood unit must be specified.")
+
+    # If a num_units count is provided and only one template is given, replicate it.
+    if num_units is not None and num_units >= 1 and len(units) == 1:
+        template = units[0]
+        units = [dict(template) for _ in range(num_units)]
+
+    if not units:
+        raise ValueError("Number of units produced must be at least 1.")
 
     for unit in units:
         if unit["component"] not in VALID_COMPONENTS:

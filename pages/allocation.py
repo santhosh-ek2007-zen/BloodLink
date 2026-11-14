@@ -16,6 +16,7 @@ from services.allocation_service import (
     allocate_units,
     find_eligible_units,
     get_allocation_history,
+    get_request_allocation_demand,
     issue_units,
 )
 from services.request_service import get_request_detail
@@ -44,14 +45,34 @@ with tab_allocate:
                 st.warning(f"No request found with ID {req_id}.")
             else:
                 (rid, hname, _, _, comp, rgroup, qty, urgency, rdate, status) = req
+
+                # Show demand summary
+                demand = get_request_allocation_demand(int(req_id))
+                if demand:
+                    already_res = demand["already_reserved"]
+                    already_iss = demand["already_issued"]
+                    remaining   = demand["remaining_demand"]
+                    col_a, col_b, col_c, col_d = st.columns(4)
+                    col_a.metric("Requested", qty)
+                    col_b.metric("Reserved",  already_res)
+                    col_c.metric("Issued",    already_iss)
+                    col_d.metric("Still Needed", remaining,
+                                 delta=f"-{already_res + already_iss}" if (already_res + already_iss) > 0 else None,
+                                 delta_color="inverse")
+
                 st.info(
                     f"**Request {rid}** — {hname} | "
                     f"{comp.replace('_',' ').title()} | {rgroup} | "
-                    f"Qty: {qty} | Urgency: {urgency} | Status: {status}"
+                    f"Qty: {qty} | Urgency: {urgency} | Status: **{status}**"
                 )
 
                 if status in ("fulfilled", "cancelled"):
                     st.warning(f"This request is already **{status}**. No allocation needed.")
+                elif demand and demand["remaining_demand"] == 0:
+                    st.warning(
+                        f"All {qty} unit(s) are already reserved or issued. "
+                        "No further allocation is needed."
+                    )
                 else:
                     el_cols, el_rows = find_eligible_units(int(req_id))
                     if el_rows:
@@ -99,11 +120,20 @@ with tab_allocate:
             if result["error"]:
                 st.error(f"Allocation failed: {result['error']}")
             else:
+                donor_info = ""
+                if result.get("donor_summary"):
+                    donor_info = " | Donors: " + ", ".join(result["donor_summary"])
                 st.success(
-                    f"✅ **{result['allocated']}** unit(s) reserved for Request {alloc_req_id}. "
-                    f"Request status: **{result['request_status']}**. "
+                    f"✅ **{result['allocated']}** unit(s) reserved for Request {alloc_req_id}."
+                    f"{donor_info} | "
+                    f"Status: **{result['request_status']}** | "
                     f"Still needed: {result['still_needed']}."
                 )
+                if result["still_needed"] > 0:
+                    st.info(
+                        f"⚠️ {result['still_needed']} more unit(s) still needed to fully fulfil this request. "
+                        "Run allocation again or check if more compatible inventory is available."
+                    )
         except Exception as exc:
             st.error("Allocation failed.")
             st.exception(exc)
@@ -141,6 +171,10 @@ with tab_issue:
 # ── Tab 3: Allocation History ──────────────────────────────────────────────
 with tab_history:
     st.subheader("Allocation History for a Request")
+    st.caption(
+        "Shows every unit reserved or issued for a request, "
+        "including the donor and blood bank that contributed each unit."
+    )
 
     hist_req_id = st.number_input("Request ID", min_value=1, step=1, key="hist_req_id")
 
@@ -151,14 +185,33 @@ with tab_history:
                 import pandas as pd
                 df = pd.DataFrame(h_rows, columns=h_cols)
                 df = df.rename(columns={
-                    "allocation_id": "Alloc ID", "unit_id": "Unit ID",
-                    "blood_group": "Blood Group", "component": "Component",
-                    "bank_name": "Blood Bank", "allocation_status": "Status",
-                    "allocated_at": "Allocated At", "issued_at": "Issued At",
-                    "cancelled_at": "Cancelled At",
+                    "allocation_id":    "Alloc ID",
+                    "request_id":       "Request ID",
+                    "hospital_name":    "Hospital",
+                    "unit_id":          "Unit ID",
+                    "donor_id":         "Donor ID",
+                    "donor_name":       "Donor",
+                    "donation_id":      "Donation ID",
+                    "blood_group":      "Blood Group",
+                    "component":        "Component",
+                    "bank_name":        "Blood Bank",
+                    "allocation_status": "Status",
+                    "allocated_at":     "Allocated At",
+                    "issued_at":        "Issued At",
+                    "cancelled_at":     "Cancelled At",
                 })
                 df["Component"] = df["Component"].str.replace("_", " ").str.title()
                 st.dataframe(df, use_container_width=True, hide_index=True)
+
+                # Donor breakdown summary
+                if "Donor" in df.columns:
+                    st.markdown("**Donor contribution summary:**")
+                    summary = (
+                        df.groupby(["Donor ID", "Donor"])
+                        .size()
+                        .reset_index(name="Units")
+                    )
+                    st.dataframe(summary, use_container_width=True, hide_index=True)
             else:
                 st.info("No allocation records found for this request.")
         except Exception as exc:
